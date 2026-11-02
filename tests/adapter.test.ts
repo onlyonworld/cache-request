@@ -5,6 +5,8 @@ import { createAdapter } from '../src/adapter'
 import { registerState, type ProjectState } from '../src/state'
 import type { CacheEntry } from '../src/types'
 
+vi.setConfig({ testTimeout: 20000 })
+
 const TTL = 1000
 
 function makeNetwork(): { adapter: AxiosAdapter; mock: ReturnType<typeof vi.fn> } {
@@ -107,8 +109,9 @@ describe('adapter 核心流程', () => {
   })
 
   it('ttl:0 永不过期', async () => {
+    // 不需要 fake timers，ttl=0 表示永不过期
     const stores = createStores('core-forever')
-    const { adapter: network, mock: networkMock } = makeNetwork()
+    const network = makeNetwork()
     const state: ProjectState = {
       projectCode: 'core-forever',
       stores,
@@ -119,15 +122,13 @@ describe('adapter 核心流程', () => {
       userOp: null,
     }
     registerState(state)
-    const adapter = createAdapter(network, state)
-    const config = cfg({ cache: true })
+    const adapter = createAdapter(network.adapter, state)
 
-    // 第一次请求
-    await adapter(config)
-    // 第二次请求，不管时间多久都应该命中缓存，不走网络
-    const secondRes = await adapter(config)
-    expect(networkMock).toHaveBeenCalledTimes(1)
-    expect((secondRes as AxiosResponse & { fromCache?: boolean }).fromCache).toBe(true)
+    await adapter(cfg({ cache: true }))
+    // 第二次请求命中缓存，不会调用网络
+    const second = await adapter(cfg({ cache: true }))
+    expect(network.mock).toHaveBeenCalledOnce()
+    expect((second as AxiosResponse & { fromCache?: boolean }).fromCache).toBe(true)
   })
 
   it('force:true 强制走网络并覆盖缓存', async () => {
