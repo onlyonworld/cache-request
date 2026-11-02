@@ -19,6 +19,32 @@ function computeKey(state: ProjectState, config: InternalAxiosRequestConfig): st
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+// IndexedDB structured clone 不支持函数（如 config.adapter / validateStatus），
+// 持久化前递归剥离函数；Date/FormData/Blob 等内置类型保持原样
+function stripFunctions(value: unknown, seen: WeakSet<object>): unknown {
+  if (typeof value === 'function') return undefined
+  if (Array.isArray(value)) {
+    return value.map((item) => stripFunctions(item, seen))
+  }
+  if (isPlainObject(value)) {
+    if (seen.has(value)) return undefined
+    seen.add(value)
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(value)) {
+      const stripped = stripFunctions(value[k], seen)
+      if (stripped !== undefined) out[k] = stripped
+    }
+    return out
+  }
+  return value
+}
+
 async function writeEntry(
   state: ProjectState,
   key: string,
@@ -26,7 +52,7 @@ async function writeEntry(
 ): Promise<void> {
   const now = Date.now()
   const entry: CacheEntry = {
-    data: response,
+    data: stripFunctions(response, new WeakSet()) as AxiosResponse,
     createdAt: now,
     expireAt: state.ttl === 0 ? Infinity : now + state.ttl,
   }
