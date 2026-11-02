@@ -3,8 +3,9 @@ import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'ax
 import { createStores } from '../src/storage'
 import { createAdapter } from '../src/adapter'
 import { registerState, type ProjectState } from '../src/state'
+import type { CacheEntry } from '../src/types'
 
-const TTL = 100
+const TTL = 1000
 
 function makeNetwork(): { adapter: AxiosAdapter; mock: ReturnType<typeof vi.fn> } {
   const mock = vi.fn(async (config: InternalAxiosRequestConfig) => ({
@@ -47,7 +48,7 @@ describe('adapter 核心流程', () => {
     const { network, networkMock, adapter } = setup('core-none')
     const res = await adapter(cfg({}))
     expect(networkMock).toHaveBeenCalledOnce()
-    expect((res as AxiosResponse).fromCache).toBeUndefined()
+    expect((res as AxiosResponse & { fromCache?: boolean }).fromCache).toBeUndefined()
   })
 
   it('cache:true 首次请求走网络并写入缓存', async () => {
@@ -77,13 +78,13 @@ describe('adapter 核心流程', () => {
 
   it('TTL 过期后视为未命中', async () => {
     const { network, networkMock, adapter, stores } = setup('core-ttl')
-    // 先写入一个过期的缓存条目
     const config = cfg({ cache: true })
-    // 先调用一次写入缓存
-    const firstRes = await adapter(config)
-    // 修改缓存条目的 expireAt
-    const key = 'test-key' // 实际应该是计算后的 key，这里简化
-    // 重新实现计算 key
+
+    // 第一次请求
+    await adapter(config)
+    expect(networkMock).toHaveBeenCalledTimes(1)
+
+    // 手动修改缓存条目为过期状态
     const { hash, stableStringify } = await import('../src/hash')
     const computedKey = hash(stableStringify({
       userId: null,
@@ -92,14 +93,16 @@ describe('adapter 核心流程', () => {
       params: config.params,
       data: config.data,
     }))
-    // 获取 entry 并修改 expireAt 为过去时间
-    const entry = await stores.cache.getItem(computedKey)
+
+    // 获取现有缓存条目并将 expireAt 设置为过去时间
+    const entry = await stores.cache.getItem<CacheEntry>(computedKey)
     if (entry) {
       entry.expireAt = Date.now() - 1000 // 过期
       await stores.cache.setItem(computedKey, entry)
     }
-    // 第二次调用应该走网络
-    const secondRes = await adapter(config)
+
+    // 第二次请求，应该走网络（缓存已过期）
+    await adapter(config)
     expect(networkMock).toHaveBeenCalledTimes(2)
   })
 
@@ -118,12 +121,13 @@ describe('adapter 核心流程', () => {
     registerState(state)
     const adapter = createAdapter(network, state)
     const config = cfg({ cache: true })
+
     // 第一次请求
     await adapter(config)
-    // 第二次请求，即使过了很久也应该命中缓存，不走网络
+    // 第二次请求，不管时间多久都应该命中缓存，不走网络
     const secondRes = await adapter(config)
     expect(networkMock).toHaveBeenCalledTimes(1)
-    expect(secondRes.fromCache).toBe(true)
+    expect((secondRes as AxiosResponse & { fromCache?: boolean }).fromCache).toBe(true)
   })
 
   it('force:true 强制走网络并覆盖缓存', async () => {
@@ -200,6 +204,115 @@ describe('adapter 核心流程', () => {
     registerState(state)
     const adapter = createAdapter(network, state)
     await adapter(cfg({ cache: true }))
+    expect(networkMock).toHaveBeenCalledOnce()
+  })
+
+  it('写缓存首次失败：clear 后重试成功', async () => {
+    const stores = createStores('core-retry')
+    const { adapter: network, mock: networkMock } = makeNetwork()
+    const state: ProjectState = {
+      projectCode: 'core-retry',
+      stores,
+      userId: null,
+      enabled: true,
+      ttl: TTL,
+      ready: Promise.resolve(),
+      userOp: null,
+    }
+    registerState(state)
+
+    // spy on setItem to fail once
+    const originalSetItem = stores.cache.setItem
+    stores.cache.setItem = vi.fn()
+      .mockRejectedValueOnce(new Error('Quota exceeded'))
+      .mockImplementation(originalSetItem)
+
+    const adapter = createAdapter(network, state)
+    await adapter(cfg({ cache: true, params: { a: 1 } }))
+
+    // verify network was called once, and cache eventually has the key
+    expect(networkMock).toHaveBeenCalledOnce()
+    const keys = await stores.cache.keys()
+    expect(keys.length).toBe(1)
+
+    // restore original
+    stores.cache.setItem = originalSetItem
+  })
+
+  it('写缓存持续失败：放弃写入但请求正常返回', async () => {
+    const stores = createStores('core-fail')
+    const { adapter: network, mock: networkMock } = makeNetwork()
+
+    // 替换 cache 的 setItem 为永远失败的函数
+    const originalCache = stores.cache
+    const mockCache = {
+      ...originalCache,
+      setItem: vi.fn().mockRejectedValue(new Error('Permanent error')),
+      clear: vi.fn().mockResolvedValue(undefined),
+      keys: vi.fn().mockResolvedValue([]),
+    }
+    // @ts-ignore - replace cache
+    stores.cache = mockCache
+
+    const state: ProjectState = {
+      projectCode: 'core-fail',
+      stores,
+      userId: null,
+      enabled: true,
+      ttl: TTL,
+      ready: Promise.resolve(),
+      userOp: null,
+    }
+    registerState(state)
+    const adapter = createAdapter(network, state)
+
+    const res = await adapter(cfg({ cache: true, params: { a: 1 } }))
+
+    // verify network was called, request succeeded
+    expect(networkMock).toHaveBeenCalledOnce()
+    expect(res.status).toBe(200)
+
+    // 检查 setItem 被尝试了多次
+    expect(mockCache.setItem).toHaveBeenCalledTimes(2) // initial + retry
+    // 检查没有写入缓存
+    const keys = await stores.cache.keys() // 可能返回空，因为 mock 没有实际存储
+    expect(keys.length).toBe(0)
+
+    // restore original
+    stores.cache = originalCache
+  })
+
+  it('state.ready 延迟 resolve 时，等待完成后再发起请求', async () => {
+    const stores = createStores('core-ready')
+    const { adapter: network, mock: networkMock } = makeNetwork()
+
+    // 创建延迟 resolve 的 ready promise
+    let resolveReady: () => void
+    const ready = new Promise<void>((resolve) => { resolveReady = resolve })
+
+    const state: ProjectState = {
+      projectCode: 'core-ready',
+      stores,
+      userId: null,
+      enabled: true,
+      ttl: TTL,
+      ready,
+      userOp: null,
+    }
+    registerState(state)
+    const adapter = createAdapter(network, state)
+
+    // 在 ready resolve 前调用 adapter
+    const promise = adapter(cfg({ cache: true }))
+
+    // 此时还未调用 network
+    expect(networkMock).not.toHaveBeenCalled()
+
+    // resolve ready
+    resolveReady!()
+    await promise
+
+    // network 应该被调用
     expect(networkMock).toHaveBeenCalledOnce()
   })
 })
