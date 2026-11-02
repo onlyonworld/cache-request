@@ -1,0 +1,39 @@
+{
+  "name": "cache-request",
+  "version": "0.1.0",
+  "description": "劫持 axios 请求，将响应缓存于 IndexedDB",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "axios": "^1.0.0"
+  },
+  "dependencies": {
+    "localforage": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "axios": "^1.21.0",
+    "fake-indexeddb": "^6.2.7",
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
