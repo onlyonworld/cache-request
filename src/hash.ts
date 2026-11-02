@@ -46,8 +46,7 @@ function stringifyValue(value: unknown, seen: Set<object>): string {
     }
 
     // Check for symbol keys in object
-    const ownKeys = Object.getOwnPropertyNames(value).concat(Object.getOwnPropertySymbols(value))
-    if (ownKeys.some(key => typeof key === 'symbol')) {
+    if (Object.getOwnPropertySymbols(value).length > 0) {
       throw new NonSerializableError()
     }
 
