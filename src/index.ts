@@ -90,27 +90,32 @@ function requireCurrentState(): ProjectState {
   return getState(currentProject)
 }
 
-export async function setUserId(id: string | number | null): Promise<void> {
-  const state = requireCurrentState()
-  const op = (async () => {
-    await state.ready
-    const record = await state.stores.meta.getItem<MetaRecord>('meta')
-    if (!record || record.userId !== id) {
-      await state.stores.cache.clear()
-      const next: MetaRecord = {
-        version: record?.version ?? '',
-        userId: id,
-      }
-      await state.stores.meta.setItem('meta', next)
+async function doSetUserId(state: ProjectState, id: string | number | null): Promise<void> {
+  await state.ready
+  const record = await state.stores.meta.getItem<MetaRecord>('meta')
+  if (!record || record.userId !== id) {
+    await state.stores.cache.clear()
+    const next: MetaRecord = {
+      version: record?.version ?? '',
+      userId: id,
     }
-    state.userId = id
-  })()
-  state.userOp = op
-  try {
-    await op
-  } finally {
-    state.userOp = null
+    await state.stores.meta.setItem('meta', next)
   }
+  state.userId = id
+}
+
+// 并发 setUserId 串行化：模块级 promise 链
+let userChain: Promise<void> = Promise.resolve()
+
+export function setUserId(id: string | number | null): Promise<void> {
+  const state = requireCurrentState()
+  const run = userChain.then(() => doSetUserId(state, id))
+  state.userOp = run
+  userChain = run.catch(() => {})
+  run.finally(() => {
+    if (state.userOp === run) state.userOp = null
+  })
+  return run
 }
 
 export async function clearCache(): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
 import { cacheRequest, setUserId, clearCache } from '../src/index'
 
 function makeAxios(projectCode: string) {
@@ -79,5 +79,86 @@ describe('版本与用户隔离', () => {
   it('projectCode 缺失时同步抛错', () => {
     const { instance } = makeAxios('iso-throw')
     expect(() => cacheRequest(instance, '', 'v1')).toThrow(TypeError)
+  })
+
+  it('非幂等 transformResponse 只执行一次，命中数据与首次一致', async () => {
+    const instance = axios.create()
+    let calls = 0
+    instance.defaults.transformResponse = [
+      (d) => {
+        calls++
+        return { wrapped: d }
+      },
+    ]
+    const network = vi.fn(async (config) => ({
+      data: { raw: 1 },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }))
+    instance.defaults.adapter = network as never
+    cacheRequest(instance, 'iso-transform', 'v1')
+    const first = await instance.get('/a', { cache: true })
+    expect(calls).toBe(1)
+    const second = await instance.get('/a', { cache: true })
+    expect(calls).toBe(1)
+    expect(second.data).toEqual(first.data)
+    expect(second.data).toEqual({ wrapped: { raw: 1 } })
+  })
+
+  it('命中响应携带运行时 config（含函数与 url）', async () => {
+    const { instance } = makeAxios('iso-runtime-config')
+    cacheRequest(instance, 'iso-runtime-config', 'v1')
+    await instance.get('/a', { cache: true })
+    const res = await instance.get('/a', { cache: true })
+    expect(res.config.url).toBe('/a')
+    expect(typeof res.config.adapter).toBe('function')
+  })
+
+  it('命中响应保留 headers（AxiosHeaders 转普通对象可访问）', async () => {
+    const instance = axios.create()
+    const network = vi.fn(async (config) => ({
+      data: { ok: true },
+      status: 200,
+      statusText: 'OK',
+      headers: AxiosHeaders.from({ 'x-test': 'yes' }),
+      config,
+    }))
+    instance.defaults.adapter = network as never
+    cacheRequest(instance, 'iso-headers', 'v1')
+    const first = await instance.get('/a', { cache: true })
+    expect(first.headers['x-test']).toBe('yes')
+    const second = await instance.get('/a', { cache: true })
+    expect(second.headers['x-test']).toBe('yes')
+    expect(second.config.url).toBe('/a')
+  })
+
+  it('首参为普通对象时抛 TypeError', () => {
+    expect(() => cacheRequest({} as never, 'iso-bad-arg', 'v1')).toThrow(TypeError)
+  })
+
+  it('同一实例重复 cacheRequest 幂等：单层包裹，transform 只执行一次', async () => {
+    const instance = axios.create()
+    let transforms = 0
+    instance.defaults.transformResponse = [
+      (d) => {
+        transforms++
+        return d
+      },
+    ]
+    const network = vi.fn(async (config) => ({
+      data: { ok: true },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }))
+    instance.defaults.adapter = network as never
+    cacheRequest(instance, 'iso-idem', 'v1')
+    cacheRequest(instance, 'iso-idem', 'v1')
+    await instance.get('/a', { cache: true })
+    expect(network).toHaveBeenCalledOnce()
+    expect(transforms).toBe(1)
   })
 })

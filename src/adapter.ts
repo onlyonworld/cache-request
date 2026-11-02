@@ -1,6 +1,11 @@
-import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import type {
+  AxiosAdapter,
+  AxiosResponse,
+  AxiosResponseHeaders,
+  InternalAxiosRequestConfig,
+} from 'axios'
 import { hash, stableStringify } from './hash'
-import type { CacheEntry } from './types'
+import type { CachedResponse, CacheEntry } from './types'
 import type { ProjectState } from './state'
 
 function computeKey(state: ProjectState, config: InternalAxiosRequestConfig): string | null {
@@ -19,40 +24,47 @@ function computeKey(state: ProjectState, config: InternalAxiosRequestConfig): st
   }
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false
-  const proto = Object.getPrototypeOf(value)
-  return proto === Object.prototype || proto === null
+function headersToObject(headers: AxiosResponse['headers']): Record<string, unknown> {
+  if (headers && typeof (headers as { toJSON?: () => Record<string, unknown> }).toJSON === 'function') {
+    return (headers as { toJSON: () => Record<string, unknown> }).toJSON()
+  }
+  return (headers ?? {}) as Record<string, unknown>
 }
 
-// IndexedDB structured clone 不支持函数（如 config.adapter / validateStatus），
-// 持久化前递归剥离函数；Date/FormData/Blob 等内置类型保持原样
-function stripFunctions(value: unknown, seen: WeakSet<object>): unknown {
-  if (typeof value === 'function') return undefined
-  if (Array.isArray(value)) {
-    return value.map((item) => stripFunctions(item, seen))
-  }
-  if (isPlainObject(value)) {
-    if (seen.has(value)) return undefined
-    seen.add(value)
-    const out: Record<string, unknown> = {}
-    for (const k of Object.keys(value)) {
-      const stripped = stripFunctions(value[k], seen)
-      if (stripped !== undefined) out[k] = stripped
+// 在缓存 adapter 内完成 transformResponse（axios 默认在 dispatchRequest 中、
+// adapter 返回后执行）。这样写入缓存的与调用方拿到的数据一致，且通过清空
+// config.transformResponse 避免 dispatchRequest 二次执行。
+function applyTransformResponse(
+  config: InternalAxiosRequestConfig,
+  data: unknown,
+  headers: unknown,
+  status?: number,
+): unknown {
+  const fns = config.transformResponse
+  if (!fns) return data
+  const list = Array.isArray(fns) ? fns : [fns]
+  let result = data
+  for (const fn of list) {
+    if (typeof fn === 'function') {
+      result = fn.call(
+        config,
+        result,
+        headers as unknown as AxiosResponseHeaders,
+        status,
+      )
     }
-    return out
   }
-  return value
+  return result
 }
 
 async function writeEntry(
   state: ProjectState,
   key: string,
-  response: AxiosResponse,
+  response: CachedResponse,
 ): Promise<void> {
   const now = Date.now()
   const entry: CacheEntry = {
-    data: stripFunctions(response, new WeakSet()) as AxiosResponse,
+    response,
     createdAt: now,
     expireAt: state.ttl === 0 ? Infinity : now + state.ttl,
   }
@@ -92,7 +104,20 @@ export function createAdapter(
     const requestNetwork = async (): Promise<AxiosResponse> => {
       const response = await originalAdapter(config)
       if (response.status >= 200 && response.status < 300) {
-        await writeEntry(state, key, response)
+        response.data = applyTransformResponse(
+          config,
+          response.data,
+          response.headers,
+          response.status,
+        )
+        // adapter 返回即最终数据，阻止 dispatchRequest 再次 transform
+        config.transformResponse = []
+        await writeEntry(state, key, {
+          data: response.data,
+          status: response.status,
+          statusText: response.statusText,
+          headers: headersToObject(response.headers),
+        })
       }
       return response
     }
@@ -118,8 +143,16 @@ export function createAdapter(
       return requestNetwork()
     }
 
-    const response = hit.data as AxiosResponse & { fromCache?: boolean }
-    response.fromCache = true
-    return response
+    // adapter 返回即最终数据，阻止 dispatchRequest 再次 transform
+    config.transformResponse = []
+    const rebuilt: AxiosResponse = {
+      data: hit.response.data,
+      status: hit.response.status,
+      statusText: hit.response.statusText,
+      headers: hit.response.headers as AxiosResponse['headers'],
+      config,
+    } as AxiosResponse
+    ;(rebuilt as AxiosResponse & { fromCache?: boolean }).fromCache = true
+    return rebuilt
   }
 }

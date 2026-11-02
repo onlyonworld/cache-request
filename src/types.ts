@@ -7,8 +7,15 @@ declare module 'axios' {
   }
 }
 
+export interface CachedResponse {
+  data: unknown
+  status: number
+  statusText: string
+  headers: unknown // 普通对象形式（AxiosHeaders.toJSON）
+}
+
 export interface CacheEntry {
-  data: AxiosResponse
+  response: CachedResponse
   createdAt: number
   expireAt: number // Infinity 表示永久
 }

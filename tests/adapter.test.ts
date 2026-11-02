@@ -3,7 +3,6 @@ import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'ax
 import { createStores } from '../src/storage'
 import { createAdapter } from '../src/adapter'
 import { registerState, type ProjectState } from '../src/state'
-import type { CacheEntry } from '../src/types'
 
 vi.setConfig({ testTimeout: 20000 })
 
