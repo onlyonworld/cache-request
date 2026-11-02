@@ -28,6 +28,22 @@ describe('stableStringify', () => {
     expect(() => stableStringify({ b: new Blob(['x']) })).toThrow(NonSerializableError)
   })
 
+  it('遇到 File 抛 NonSerializableError', () => {
+    expect(() => stableStringify({ f: new File(['x'], 'test.txt') })).toThrow(NonSerializableError)
+  })
+
+  it('遇到 ArrayBuffer 抛 NonSerializableError', () => {
+    expect(() => stableStringify({ ab: new ArrayBuffer(8) })).toThrow(NonSerializableError)
+  })
+
+  it('遇到 Symbol 值抛 NonSerializableError', () => {
+    expect(() => stableStringify({ s: Symbol('test') })).toThrow(NonSerializableError)
+  })
+
+  it('遇到 Symbol 作为对象 key 抛 NonSerializableError', () => {
+    expect(() => stableStringify({ [Symbol('x')]: 1 })).toThrow(NonSerializableError)
+  })
+
   it('循环引用抛 NonSerializableError', () => {
     const a: Record<string, unknown> = {}
     a.self = a
@@ -41,6 +57,16 @@ describe('stableStringify', () => {
   it('Map/Set 抛 NonSerializableError', () => {
     expect(() => stableStringify(new Map([['a', 1]]))).toThrow(NonSerializableError)
     expect(() => stableStringify(new Set([1]))).toThrow(NonSerializableError)
+  })
+
+  it('菱形共享引用正常序列化', () => {
+    const o = { value: 1 }
+    expect(stableStringify({ a: o, b: o })).toBe('{"a":{"value":1},"b":{"value":1}}')
+  })
+
+  it('数组中重复引用正常序列化', () => {
+    const o = { value: 1 }
+    expect(stableStringify([o, o])).toBe('[{"value":1},{"value":1}]')
   })
 })
 

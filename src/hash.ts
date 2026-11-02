@@ -5,8 +5,6 @@ export class NonSerializableError extends Error {
   }
 }
 
-type Seen = WeakSet<object>
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false
   const proto = Object.getPrototypeOf(value)
@@ -14,17 +12,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isUnsupported(value: unknown): boolean {
-  const g = globalThis as Record<string, unknown>
   if (typeof FormData !== 'undefined' && value instanceof FormData) return true
   if (typeof File !== 'undefined' && value instanceof File) return true
   if (typeof Blob !== 'undefined' && value instanceof Blob) return true
   if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) return true
   if (ArrayBuffer.isView(value) && !(value instanceof DataView)) return true
-  void g
   return false
 }
 
-function stringifyValue(value: unknown, seen: Seen): string {
+function stringifyValue(value: unknown, seen: Set<object>): string {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
   const t = typeof value
@@ -39,20 +35,34 @@ function stringifyValue(value: unknown, seen: Seen): string {
     // Date / Map / Set / RegExp / DOM 节点等一律拒绝
     throw new NonSerializableError()
   }
+
+  // Check for circular reference along current path
   if (seen.has(obj)) throw new NonSerializableError('circular reference')
   seen.add(obj)
 
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stringifyValue(item, seen)).join(',')}]`
+  try {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => stringifyValue(item, seen)).join(',')}]`
+    }
+
+    // Check for symbol keys in object
+    const ownKeys = Object.getOwnPropertyNames(value).concat(Object.getOwnPropertySymbols(value))
+    if (ownKeys.some(key => typeof key === 'symbol')) {
+      throw new NonSerializableError()
+    }
+
+    const keys = Object.keys(value).sort()
+    return `{${keys
+      .map((k) => `${JSON.stringify(k)}:${stringifyValue(value[k], seen)}`)
+      .join(',')}}`
+  } finally {
+    // Remove from seen after processing to allow shared references
+    seen.delete(obj)
   }
-  const keys = Object.keys(value).sort()
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stringifyValue(value[k], seen)}`)
-    .join(',')}}`
 }
 
 export function stableStringify(value: unknown): string {
-  return stringifyValue(value, new WeakSet())
+  return stringifyValue(value, new Set())
 }
 
 export function hash(input: string): string {
