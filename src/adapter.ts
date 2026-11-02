@@ -207,37 +207,13 @@ export function createAdapter(
 
     const force = typeof cacheOption === 'object' && cacheOption.force === true
 
-    // 异步调度后台刷新：复制 config 保留调用方原始 transformResponse
-    // （网络/命中路径都会清空它）。setTimeout 让出当前调用栈；
-    // revalidateInBackground 内部已兜底所有错误。
-    const scheduleBackground = (
-      cfg: InternalAxiosRequestConfig,
-      oldEntry: CacheEntry,
-    ): void => {
-      setTimeout(() => {
-        void revalidateInBackground(state, cfg, originalAdapter, key, oldEntry)
-      }, 0)
-    }
-
+    // miss/过期/force 的回源路径严格为：回源一次 → 2xx 写缓存 → 返回，
+    // 不做任何后台刷新。
     const requestNetwork = async (): Promise<AxiosResponse> => {
-      // revalidate 场景下首次回源写入后也要后台再校验一次（brief 用例要求）
-      const bgConfig = config.revalidate
-        ? ({
-            ...config,
-            transformResponse: config.transformResponse,
-          } as InternalAxiosRequestConfig)
-        : null
       const response = await originalAdapter(config)
       const cached = await finalizeNetworkResponse(config, response)
       if (cached) {
         await writeEntry(state, key, cached)
-        if (bgConfig) {
-          scheduleBackground(bgConfig, {
-            response: cached,
-            createdAt: Date.now(),
-            expireAt: state.ttl === 0 ? Infinity : Date.now() + state.ttl,
-          })
-        }
       }
       return response
     }
@@ -264,23 +240,27 @@ export function createAdapter(
       return requestNetwork()
     }
 
-    // 命中分支：先复制 config 保留原始 transformResponse（紧接着会被清空），
-    // 再异步调度后台刷新。用 setTimeout 让出当前调用栈，使本次请求返回与
-    // 后台回源互不影响；revalidate 内部已兜底所有错误。
-    // 命中：先复制 config 保留原始 transformResponse（紧接着会被清空）
-    const bgConfig = config.revalidate
-      ? ({
-          ...config,
-          transformResponse: config.transformResponse,
-        } as InternalAxiosRequestConfig)
-      : null
+    // 仅命中分支：在清空 transformResponse 之前浅拷贝 config 供后台请求使用。
+    // headers 单独复制，避免与主 config 共享 AxiosHeaders 引用后被 mutate。
+    let bgConfig: InternalAxiosRequestConfig | null = null
+    if (config.revalidate) {
+      bgConfig = {
+        ...config,
+        headers: AxiosHeaders.from(config.headers),
+      } as InternalAxiosRequestConfig
+      setTimeout(() => {
+        void revalidateInBackground(
+          state,
+          bgConfig as InternalAxiosRequestConfig,
+          originalAdapter,
+          key,
+          hit as CacheEntry,
+        )
+      }, 0)
+    }
 
     // adapter 返回即最终数据，阻止 dispatchRequest 再次 transform
     config.transformResponse = []
-
-    if (bgConfig) {
-      scheduleBackground(bgConfig, hit as CacheEntry)
-    }
 
     const rebuilt: AxiosResponse = {
       data: hit.response.data,
