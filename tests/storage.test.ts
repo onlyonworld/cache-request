@@ -38,5 +38,7 @@ describe('initProject', () => {
     await initProject(b, 'v9')
     await a.cache.setItem('shared-key', { from: 'a' })
     expect(await b.cache.getItem('shared-key')).toBeNull()
+    expect(await a.meta.getItem('meta')).toEqual({ version: 'v1', userId: null })
+    expect(await b.meta.getItem('meta')).toEqual({ version: 'v9', userId: null })
   })
 })
