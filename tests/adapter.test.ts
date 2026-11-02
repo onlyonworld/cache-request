@@ -28,6 +28,7 @@ function setup(projectCode: string) {
     userId: null,
     enabled: true,
     ttl: TTL,
+    ignoreParams: [],
     ready: Promise.resolve(),
     userOp: null,
   }
@@ -102,6 +103,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: 0,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -146,6 +148,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: TTL,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -167,6 +170,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: TTL,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -184,6 +188,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: false,
       ttl: TTL,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -202,6 +207,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: TTL,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -246,6 +252,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: TTL,
+      ignoreParams: [],
       ready: Promise.resolve(),
       userOp: null,
     }
@@ -282,6 +289,7 @@ describe('adapter 核心流程', () => {
       userId: null,
       enabled: true,
       ttl: TTL,
+      ignoreParams: [],
       ready,
       userOp: null,
     }

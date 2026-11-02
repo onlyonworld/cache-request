@@ -6,6 +6,7 @@ export interface ProjectState {
   userId: string | number | null
   enabled: boolean
   ttl: number
+  ignoreParams: string[]
   ready: Promise<void>
   userOp: Promise<void> | null
 }

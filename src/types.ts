@@ -4,6 +4,7 @@ declare module 'axios' {
   interface AxiosRequestConfig {
     cache?: boolean | { force?: boolean }
     revalidate?: boolean
+    ignoreParams?: string[]
   }
 }
 

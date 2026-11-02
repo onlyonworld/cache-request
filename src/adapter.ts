@@ -9,15 +9,36 @@ import { hash, stableStringify } from './hash'
 import type { CachedResponse, CacheEntry } from './types'
 import type { ProjectState } from './state'
 
+// 仅用于计算缓存 key：普通对象顶层浅拷贝并删除命中的 key，
+// 返回新对象；非普通对象（null、数组、FormData、字符串 body 等）原样返回。
+export function filterIgnored(value: unknown, ignore: Set<string>): unknown {
+  if (ignore.size === 0) return value
+  if (typeof value !== 'object' || value === null) return value
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== null && proto !== Object.prototype) return value
+  const source = value as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(source)) {
+    if (!ignore.has(key)) {
+      out[key] = source[key]
+    }
+  }
+  return out
+}
+
 function computeKey(state: ProjectState, config: InternalAxiosRequestConfig): string | null {
   try {
+    const ignore = new Set<string>([
+      ...state.ignoreParams,
+      ...(config.ignoreParams ?? []),
+    ])
     return hash(
       stableStringify({
         userId: state.userId,
         method: config.method,
         url: config.url,
-        params: config.params,
-        data: config.data,
+        params: filterIgnored(config.params, ignore),
+        data: filterIgnored(config.data, ignore),
       }),
     )
   } catch {

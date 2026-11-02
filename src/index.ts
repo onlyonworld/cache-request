@@ -37,7 +37,7 @@ export function cacheRequest(
   axiosInstance: AxiosInstance | AxiosStatic,
   projectCode: string,
   cacheKey: string,
-  options: { ttl?: number } = {},
+  options: { ttl?: number; ignoreParams?: string[] } = {},
 ): void {
   if (!isAxiosLike(axiosInstance)) {
     throw new TypeError('cache-request: first argument must be an axios instance')
@@ -63,6 +63,7 @@ export function cacheRequest(
     userId: null,
     enabled: true,
     ttl,
+    ignoreParams: options.ignoreParams ?? [],
     ready: Promise.resolve(),
     userOp: null,
   }
