@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import axios, { AxiosHeaders } from 'axios'
+import type { AxiosResponseHeaders, InternalAxiosRequestConfig } from 'axios'
 import { cacheRequest, setUserId, clearCache } from '../src/index'
+import { createStores } from '../src/storage'
+import { hash, stableStringify } from '../src/hash'
 
 function makeAxios(projectCode: string) {
   const instance = axios.create()
@@ -128,9 +131,9 @@ describe('版本与用户隔离', () => {
     instance.defaults.adapter = network as never
     cacheRequest(instance, 'iso-headers', 'v1')
     const first = await instance.get('/a', { cache: true })
-    expect(first.headers['x-test']).toBe('yes')
+    expect((first.headers as AxiosResponseHeaders).get('x-test')).toBe('yes')
     const second = await instance.get('/a', { cache: true })
-    expect(second.headers['x-test']).toBe('yes')
+    expect((second.headers as AxiosResponseHeaders).get('x-test')).toBe('yes')
     expect(second.config.url).toBe('/a')
   })
 
@@ -160,5 +163,87 @@ describe('版本与用户隔离', () => {
     await instance.get('/a', { cache: true })
     expect(network).toHaveBeenCalledOnce()
     expect(transforms).toBe(1)
+  })
+
+  it('miss 路径 transform 内 headers 为归一化 AxiosHeaders，命中后业务侧 headers.get 可用', async () => {
+    const instance = axios.create()
+    const seen: string[] = []
+    instance.defaults.transformResponse = [
+      (d: unknown, headers: AxiosResponseHeaders) => {
+        seen.push(String(headers.get('x-test')))
+        return d
+      },
+    ]
+    const network = vi.fn(async (config) => ({
+      data: { ok: true },
+      status: 200,
+      statusText: 'OK',
+      headers: { 'X-Test': 'yes' },
+      config,
+    }))
+    instance.defaults.adapter = network as never
+    cacheRequest(instance, 'iso-norm-headers', 'v1')
+    const first = await instance.get('/a', { cache: true })
+    expect(seen).toEqual(['yes'])
+    expect((first.headers as AxiosResponseHeaders).get('x-test')).toBe('yes')
+    const second = await instance.get('/a', { cache: true })
+    // 命中不再执行 transform
+    expect(seen).toEqual(['yes'])
+    expect(typeof (second.headers as AxiosResponseHeaders).get).toBe('function')
+    expect((second.headers as AxiosResponseHeaders).get('x-test')).toBe('yes')
+  })
+
+  it('transform 执行期间 config.response 可访问，结束后清除', async () => {
+    const instance = axios.create()
+    let observed: { status: number; config: { response?: unknown } } | null = null
+    instance.defaults.transformResponse = [
+      function (this: InternalAxiosRequestConfig, d: unknown) {
+        observed = (this as { response?: typeof observed }).response ?? null
+        return d
+      },
+    ]
+    const network = vi.fn(async (config) => ({
+      data: { ok: true },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }))
+    instance.defaults.adapter = network as never
+    cacheRequest(instance, 'iso-transform-response', 'v1')
+    await instance.get('/a', { cache: true })
+    expect(observed).not.toBeNull()
+    const obs = observed as unknown as {
+      status: number
+      config: { response?: unknown }
+    }
+    expect(obs.status).toBe(200)
+    // finally 中 delete config.response
+    expect(obs.config.response).toBeUndefined()
+  })
+
+  it('旧结构缓存条目（整响应）回源而非返回残缺响应', async () => {
+    const { instance, network } = makeAxios('iso-stale-entry')
+    cacheRequest(instance, 'iso-stale-entry', 'v1')
+    const stores = createStores('iso-stale-entry')
+    // 等待初始化完成
+    await stores.meta.getItem('meta')
+    const key = hash(
+      stableStringify({
+        userId: null,
+        method: 'get',
+        url: '/a',
+        params: undefined,
+        data: undefined,
+      }),
+    )
+    await stores.cache.setItem(key, {
+      data: { stale: true },
+      createdAt: 0,
+      expireAt: Infinity,
+    })
+    const res = await instance.get('/a', { cache: true })
+    expect(network).toHaveBeenCalledOnce()
+    expect(res.data).toEqual({ ok: true, url: '/a' })
   })
 })

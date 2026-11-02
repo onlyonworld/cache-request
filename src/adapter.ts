@@ -1,3 +1,4 @@
+import { AxiosHeaders } from 'axios'
 import type {
   AxiosAdapter,
   AxiosResponse,
@@ -104,12 +105,25 @@ export function createAdapter(
     const requestNetwork = async (): Promise<AxiosResponse> => {
       const response = await originalAdapter(config)
       if (response.status >= 200 && response.status < 300) {
-        response.data = applyTransformResponse(
-          config,
-          response.data,
-          response.headers,
-          response.status,
-        )
+        // 对齐 dispatchRequest：归一化 headers（transform 内可 headers.get），
+        // 并临时挂载 config.response（JSON 解析失败时 AxiosError 需携带响应）
+        const headersForTransform = AxiosHeaders.from(
+          response.headers as unknown as Record<string, string>,
+        ).normalize(true)
+        const mutableConfig = config as InternalAxiosRequestConfig & {
+          response?: AxiosResponse
+        }
+        mutableConfig.response = response
+        try {
+          response.data = applyTransformResponse(
+            config,
+            response.data,
+            headersForTransform,
+            response.status,
+          )
+        } finally {
+          delete mutableConfig.response
+        }
         // adapter 返回即最终数据，阻止 dispatchRequest 再次 transform
         config.transformResponse = []
         await writeEntry(state, key, {
@@ -133,7 +147,8 @@ export function createAdapter(
       hit = null
     }
 
-    if (!hit) {
+    // 结构校验：旧版本（整响应缓存）或损坏条目回源
+    if (!hit || typeof hit !== 'object' || !('response' in hit)) {
       return requestNetwork()
     }
 
