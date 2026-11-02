@@ -79,37 +79,22 @@ describe('adapter 核心流程', () => {
   })
 
   it('TTL 过期后视为未命中', async () => {
-    const { network, networkMock, adapter, stores } = setup('core-ttl')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const { network, networkMock, adapter } = setup('core-ttl')
     const config = cfg({ cache: true })
 
-    // 第一次请求
+    // 先写入缓存
     await adapter(config)
-    expect(networkMock).toHaveBeenCalledTimes(1)
-
-    // 手动修改缓存条目为过期状态
-    const { hash, stableStringify } = await import('../src/hash')
-    const computedKey = hash(stableStringify({
-      userId: null,
-      method: config.method,
-      url: config.url,
-      params: config.params,
-      data: config.data,
-    }))
-
-    // 获取现有缓存条目并将 expireAt 设置为过去时间
-    const entry = await stores.cache.getItem<CacheEntry>(computedKey)
-    if (entry) {
-      entry.expireAt = Date.now() - 1000 // 过期
-      await stores.cache.setItem(computedKey, entry)
-    }
-
-    // 第二次请求，应该走网络（缓存已过期）
+    // 前进时间超过 TTL
+    vi.advanceTimersByTime(TTL + 1)
+    // 第二次调用应该走网络
     await adapter(config)
     expect(networkMock).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
   })
 
   it('ttl:0 永不过期', async () => {
-    // 不需要 fake timers，ttl=0 表示永不过期
+    vi.useFakeTimers({ toFake: ['Date'] })
     const stores = createStores('core-forever')
     const network = makeNetwork()
     const state: ProjectState = {
@@ -125,10 +110,11 @@ describe('adapter 核心流程', () => {
     const adapter = createAdapter(network.adapter, state)
 
     await adapter(cfg({ cache: true }))
-    // 第二次请求命中缓存，不会调用网络
+    vi.advanceTimersByTime(10 * 365 * 24 * 3600 * 1000)
     const second = await adapter(cfg({ cache: true }))
     expect(network.mock).toHaveBeenCalledOnce()
     expect((second as AxiosResponse & { fromCache?: boolean }).fromCache).toBe(true)
+    vi.useRealTimers()
   })
 
   it('force:true 强制走网络并覆盖缓存', async () => {
