@@ -1,8 +1,31 @@
 {
-  "name": "cache-request",
+  "name": "@onlyonworld/axios-cache",
   "version": "0.1.0",
-  "description": "劫持 axios 请求，将响应缓存于 IndexedDB",
+  "description": "劫持 axios 请求，将响应缓存于 IndexedDB，支持 TTL、发版清缓存、多账号隔离与静默刷新",
   "type": "module",
+  "license": "MIT",
+  "author": "onlyonworld",
+  "homepage": "https://github.com/onlyonworld/cache-request#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onlyonworld/cache-request.git"
+  },
+  "bugs": {
+    "url": "https://github.com/onlyonworld/cache-request/issues"
+  },
+  "keywords": [
+    "axios",
+    "cache",
+    "indexeddb",
+    "localforage",
+    "adapter",
+    "request",
+    "offline"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=16"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +43,8 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run test && npm run build"
   },
   "peerDependencies": {
     "axios": "^1.0.0"

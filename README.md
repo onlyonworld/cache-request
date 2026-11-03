@@ -4,17 +4,28 @@
 
 ## 安装
 
+在你的业务项目中安装本包：
+
 ```bash
-npm install
+npm install @onlyonworld/axios-cache axios
 ```
 
-> 注意：该项目要求宿主项目安装axios，否则无法正常使用。
+其他包管理器：
+
+```bash
+pnpm add @onlyonworld/axios-cache axios
+yarn add @onlyonworld/axios-cache axios
+```
+
+> 说明：
+> - `axios` 是 peer dependency，需由宿主项目自行安装（支持 `axios@^1.0.0`）
+> - `localforage` 是本包的运行时依赖，会自动安装，无需手动处理
 
 ## 快速开始
 
 ```ts
 import axios from 'axios'
-import { cacheRequest, setUserId, onDiff } from 'cache-request'
+import { cacheRequest, setUserId, onDiff } from '@onlyonworld/axios-cache'
 
 // projectCode 必填：不同项目使用独立的 IndexedDB
 // cacheKey：发版版本号，变化时自动清空该项目全部缓存
