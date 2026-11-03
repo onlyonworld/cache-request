@@ -32,8 +32,8 @@
     "@types/node": "^26.6.6",
     "axios": "^1.21.0",
     "fake-indexeddb": "^6.2.7",
-    "tsup": "^9.0.0",
-    "typescript": "^7.0.2",
+    "tsup": "^8.5.1",
+    "typescript": "~5.6.3",
     "vitest": "^2.1.9"
   }
 }
