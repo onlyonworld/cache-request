@@ -87,7 +87,29 @@ export function stableStringify(value: unknown): string {
   return stringifyValue(value, new Set())
 }
 
-/** djb2 hash：`h * 33 + c`（左移 5 位即乘 32 再加 h），|0 保持 32 位整数 */
+/**
+ * djb2 hash（Daniel J. Bernstein），输出 8 位 hex。
+ *
+ * 算法原理：
+ * - 初始魔数 5381
+ * - 逐字符迭代：h = h * 33 + charCode(i)
+ *   位运算写法 (h << 5) + h 等价于 h * 32 + h = h * 33
+ * - `| 0` 将结果强制截断为 32 位有符号整数，避免 JS number 精度漂移
+ * - 最后 `>>> 0` 解释为无符号整数再转十六进制，padStart 固定为 8 位
+ * 特点：实现极简、分布均匀，广泛用于哈希表等非密码学场景。
+ *
+ * 为什么不使用 MD5 等第三方库：
+ * 1. 同步性：axios adapter 在发起网络请求前就需要 key 决定是否查缓存；
+ *    浏览器原生 Web Crypto 的 digest 为异步（且不提供 MD5），第三方 MD5
+ *    包虽同步，但会增加依赖并使 adapter 的分支链路复杂化。
+ * 2. 碰撞概率足够低：此处只是缓存 key，非密码学用途，最坏后果仅是某次
+ *    请求误命中（force 刷新即可恢复）；32 位输出在同项目数千~数万接口
+ *    组合下碰撞概率可忽略。
+ * 3. 零依赖、约 6 行代码：避免增加体积与供应链成本，符合包"运行时只
+ *    依赖 localforage"的原则。
+ * 若未来接口组合达数十万级、或需跨语言共享 key，应替换为 SHA-256 等
+ * 标准算法——hash() 是唯一出口，替换实现不影响其他模块。
+ */
 export function hash(input: string): string {
   let h = 5381
   for (let i = 0; i < input.length; i++) {
