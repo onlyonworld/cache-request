@@ -1,3 +1,7 @@
+/**
+ * 包入口：cacheRequest 初始化 + setUserId / clearCache 等全局管理方法。
+ * 修改传入 axios 实例的 defaults.adapter，内部包裹其原 adapter。
+ */
 import type { AxiosAdapter, AxiosInstance, AxiosStatic } from 'axios'
 import { createAdapter } from './adapter'
 import { createStores, initProject } from './storage'

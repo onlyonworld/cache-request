@@ -1,3 +1,13 @@
+/**
+ * 缓存 adapter：本包的核心。替换 axios 实例的 defaults.adapter，包裹其原
+ * adapter 作为网络回退。处理五条路径——
+ * 1. 未开启 cache / IDB 降级：原样透传，不读不写
+ * 2. 未命中或 TTL 过期：回源一次，2xx 响应写入缓存
+ * 3. force：强制回源，结果覆盖缓存
+ * 4. 命中：立即用缓存重建 AxiosResponse（config 取运行时 config）
+ * 5. 命中且 revalidate：返回缓存的同时后台静默刷新，数据不一致则覆盖缓存
+ *    并发出 diff 事件
+ */
 import { AxiosHeaders } from 'axios'
 import type {
   AxiosAdapter,
