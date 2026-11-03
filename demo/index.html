@@ -84,11 +84,18 @@
       </div>
 
       <div class="panel" style="margin-top: 16px;">
-        <h2>2. 服务器数据</h2>
+        <h2>2. 服务器数据与订阅验证</h2>
         <div class="btns">
-          <button class="danger" onclick="mutateServer()">修改服务器数据（version+1）</button>
+          <button class="primary" onclick="subscribeValidate()">① / ② 验证数据订阅（revalidate）</button>
+          <button class="danger" onclick="mutateServer()">③ 修改服务器数据（version+1）</button>
         </div>
-        <div class="hint">改变接口真实返回内容，用于观察缓存与真实数据的差异。</div>
+        <div class="hint">
+          <b>验证 onDiff 订阅的完整步骤：</b><br>
+          第 1 次点击蓝色按钮：无缓存，走网络建立缓存（约 800ms）；<br>
+          点击红色按钮：服务器数据 version + 1；<br>
+          第 2 次点击蓝色按钮：<b>立即返回旧缓存（秒回），后台静默请求发现差异，onDiff 自动抛出新旧数据（红色日志）</b>；<br>
+          第 3 次点击：返回的已是新数据。
+        </div>
       </div>
 
       <div class="panel" style="margin-top: 16px;">

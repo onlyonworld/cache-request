@@ -62,6 +62,7 @@ interface DemoWindow extends Window {
   forceRequest: () => Promise<void>
   revalidateRequest: () => Promise<void>
   mutateServer: () => Promise<void>
+  subscribeValidate: () => Promise<void>
   changeUser: () => Promise<void>
   clearAll: () => Promise<void>
 }
@@ -76,6 +77,29 @@ w.revalidateRequest = () => call({ cache: true, revalidate: true })
 w.mutateServer = async () => {
   const res = await axios.post('/api/mutate')
   log('info', '服务器数据已修改', res.data.user)
+}
+
+// 订阅功能验证：cache:true + revalidate:true。
+// 无缓存 → 走网络建立缓存；命中 → 秒回旧缓存，后台发现差异时 onDiff 自动抛出。
+w.subscribeValidate = async () => {
+  const start = performance.now()
+  const res = await axios.get('/api/user', { cache: true, revalidate: true })
+  const cost = performance.now() - start
+  const fromCache = (res as { fromCache?: boolean }).fromCache === true
+
+  if (fromCache) {
+    log(
+      'hit',
+      `命中缓存，秒回旧数据（耗时 ${cost.toFixed(1)} ms）：后台静默校验中，若数据已变更将自动抛出 onDiff 事件`,
+      res.data,
+    )
+  } else {
+    log(
+      'net',
+      `无缓存，已走网络建立缓存（耗时 ${cost.toFixed(1)} ms）：请点击"修改服务器数据"后再次点击本按钮`,
+      res.data,
+    )
+  }
 }
 
 w.changeUser = async () => {
