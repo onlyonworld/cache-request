@@ -43,11 +43,15 @@ onDiff((event) => {
 })
 
 async function call(config: Record<string, unknown>) {
+  const start = performance.now()
   const res = await axios.get('/api/user', config)
+  const cost = performance.now() - start
   const fromCache = (res as { fromCache?: boolean }).fromCache === true
   log(
     fromCache ? 'hit' : 'net',
-    fromCache ? '命中缓存，立即返回' : '走网络请求返回',
+    fromCache
+      ? `命中缓存，立即返回（耗时 ${cost.toFixed(1)} ms）`
+      : `走网络请求返回（耗时 ${cost.toFixed(1)} ms）`,
     res.data,
   )
 }

@@ -60,8 +60,8 @@ const server = http.createServer(async (req, res) => {
   try {
     // ---------- 接口 ----------
     if (req.method === 'GET' && pathname === '/api/user') {
-      // 延迟 300ms，方便观察“走网络”与“命中缓存”在速度上的差异
-      setTimeout(() => sendJson(res, 200, { ...userInfo }), 300)
+      // 延迟 800ms，放大“走网络”与“命中缓存（毫秒级）”的速度差异
+      setTimeout(() => sendJson(res, 200, { ...userInfo }), 800)
       return
     }
 
