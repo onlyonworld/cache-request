@@ -7,14 +7,14 @@
 在你的业务项目中安装本包：
 
 ```bash
-npm install @onlyonworld/axios-cache axios
+npm install @only_on_world/axios-cache axios
 ```
 
 其他包管理器：
 
 ```bash
-pnpm add @onlyonworld/axios-cache axios
-yarn add @onlyonworld/axios-cache axios
+pnpm add @only_on_world/axios-cache axios
+yarn add @only_on_world/axios-cache axios
 ```
 
 > 说明：
@@ -25,7 +25,7 @@ yarn add @onlyonworld/axios-cache axios
 
 ```ts
 import axios from 'axios'
-import { cacheRequest, setUserId, onDiff } from '@onlyonworld/axios-cache'
+import { cacheRequest, setUserId, onDiff } from '@only_on_world/axios-cache'
 
 // projectCode 必填：不同项目使用独立的 IndexedDB
 // cacheKey：发版版本号，变化时自动清空该项目全部缓存
@@ -37,6 +37,18 @@ cacheRequest(axios, 'your-project-code', __AXIOS_CACHE_KEY__, {
 // 登录后设置 userId；切换账号时自动清空缓存，强烈建议设置
 setUserId('user-123')
 ```
+
+## 本地 Demo 快速体验
+
+仓库内置一个可交互的 demo，包含一个**纯 Node.js 内置模块实现的接口服务器**（无 express/koa）：
+
+```bash
+npm install        # 安装依赖（仅首次）
+npm run build      # 构建本包，供页面引入
+node demo/server.js
+```
+
+浏览器打开 http://127.0.0.1:5174 ，可体验：缓存命中（秒回）/ 强制刷新 / 静默刷新与 onDiff 差异事件 / setUserId 切换清缓存 / clearCache。
 
 ## 请求级配置
 

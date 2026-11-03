@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cache-request demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: #f5f6fa;
+      color: #222;
+      padding: 24px;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1100px; }
+    .panel {
+      background: #fff;
+      border: 1px solid #e3e5ec;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .panel h2 { font-size: 14px; margin: 0 0 12px; color: #333; }
+    .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      border: 1px solid #c9cdd8;
+      background: #fff;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { background: #f0f3ff; border-color: #7d8fff; }
+    button.primary { background: #4157ff; color: #fff; border-color: #4157ff; }
+    button.danger { color: #c0392b; }
+    .hint { font-size: 12px; color: #888; margin-top: 8px; line-height: 1.6; }
+    .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+    input {
+      border: 1px solid #c9cdd8;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 13px;
+      width: 140px;
+    }
+    #log {
+      height: 480px;
+      overflow: auto;
+      background: #1e1f29;
+      color: #d7dae6;
+      border-radius: 8px;
+      padding: 12px;
+      font: 12px/1.6 Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-info { color: #9ecbff; }
+    .log-hit { color: #7ee787; }
+    .log-net { color: #f0b563; }
+    .log-diff { color: #ff7b72; }
+    .log-err { color: #ff9e9e; }
+  </style>
+  <!-- importmap：让构建产物中的裸模块名解析到可用的 ESM 地址 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "axios": "https://esm.sh/axios@1.7.9",
+        "localforage": "/localforage.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>cache-request 体验 Demo</h1>
+  <div class="sub">点击按钮操作，右侧日志显示请求来源（网络 / 缓存）。服务器接口有 300ms 延迟，缓存命中时可明显感觉到“秒回”。</div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>1. 请求体验（GET /api/user）</h2>
+        <div class="btns">
+          <button onclick="plainRequest()">普通请求（不缓存）</button>
+          <button class="primary" onclick="cachedRequest()">缓存请求 cache:true</button>
+          <button onclick="forceRequest()">强制刷新 force:true</button>
+          <button onclick="revalidateRequest()">静默刷新 revalidate:true</button>
+        </div>
+        <div class="hint">
+          建议顺序：连续点两次“缓存请求”（第二次命中，秒回）→ 点“修改服务器数据” → 再点“静默刷新”（先返回旧数据，后台请求完成后出现 diff 事件，第三次点即为新数据）。
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 16px;">
+        <h2>2. 服务器数据</h2>
+        <div class="btns">
+          <button class="danger" onclick="mutateServer()">修改服务器数据（version+1）</button>
+        </div>
+        <div class="hint">改变接口真实返回内容，用于观察缓存与真实数据的差异。</div>
+      </div>
+
+      <div class="panel" style="margin-top: 16px;">
+        <h2>3. 账号与缓存管理</h2>
+        <div class="row">
+          <input id="userId" value="user-1" placeholder="userId" />
+          <button onclick="changeUser()">setUserId（切换清空缓存）</button>
+        </div>
+        <div class="btns" style="margin-top: 10px;">
+          <button class="danger" onclick="clearAll()">clearCache()</button>
+        </div>
+        <div class="hint">setUserId 与库中记录不一致时，会自动清空当前项目缓存，防止多账号串数据。</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>日志 / 数据差异订阅（onDiff）</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import axios from 'axios'
+    import { cacheRequest, setUserId, clearCache, onDiff } from '/cache-request.js'
+
+    const logEl = document.getElementById('log')
+
+    function log(type, message, payload) {
+      const time = new Date().toLocaleTimeString()
+      const line = `[${time}] ${message}`
+      const div = document.createElement('div')
+      div.className = `log-${type}`
+      div.textContent = payload
+        ? `${line}\n${typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)}`
+        : line
+      logEl.appendChild(div)
+      logEl.scrollTop = logEl.scrollHeight
+    }
+
+    // 初始化：cacheKey 用固定串 demo-v1。实际项目中由构建工具替换为每次发版的随机串。
+    cacheRequest(axios, 'demo-project', 'demo-v1', {
+      ttl: 60 * 1000, // demo 中设为 60 秒，便于观察过期
+      ignoreParams: ['t'],
+    })
+
+    await setUserId('user-1')
+    log('info', '初始化完成：cacheRequest + setUserId(user-1)')
+
+    // 订阅静默刷新发现的数据差异
+    onDiff((event) => {
+      log(
+        'diff',
+        `onDiff 收到数据变化 ${event.method.toUpperCase()} ${event.url}`,
+        { oldData: event.oldData, newData: event.newData },
+      )
+    })
+
+    async function call(config) {
+      const res = await axios.get('/api/user', config)
+      const fromCache = res.fromCache === true
+      log(fromCache ? 'hit' : 'net', fromCache ? '命中缓存，立即返回' : '走网络请求返回', res.data)
+    }
+
+    window.plainRequest = () => call({})
+    window.cachedRequest = () => call({ cache: true, params: { t: Date.now() } }) // t 被 ignoreParams 忽略
+    window.forceRequest = () => call({ cache: { force: true } })
+    window.revalidateRequest = () => call({ cache: true, revalidate: true })
+
+    window.mutateServer = async () => {
+      const res = await axios.post('/api/mutate')
+      log('info', '服务器数据已修改', res.data.user)
+    }
+
+    window.changeUser = async () => {
+      const id = document.getElementById('userId').value.trim()
+      if (!id) return log('err', 'userId 不能为空')
+      await setUserId(id)
+      log('info', `setUserId("${id}") 完成，缓存已按规则处理`)
+    }
+
+    window.clearAll = async () => {
+      await clearCache()
+      log('info', 'clearCache() 完成，当前项目缓存已清空')
+    }
+  </script>
+</body>
+</html>
