@@ -198,9 +198,24 @@ describe('adapter 核心流程', () => {
     expect(networkMock).toHaveBeenCalledOnce()
   })
 
-  it('写缓存首次失败：clear 后重试成功', async () => {
+  it('写缓存首次配额失败：clear 后重试成功', async () => {
     const stores = createStores('core-retry')
     const { adapter: network, mock: networkMock } = makeNetwork()
+
+    // 用可控 mock 替换 cache：首次 setItem 抛配额错误，重试成功
+    const originalCache = stores.cache
+    const clearSpy = vi.fn().mockResolvedValue(undefined)
+    const setItemMock = vi.fn()
+      .mockRejectedValueOnce(new DOMException('Quota exceeded', 'QuotaExceededError'))
+      .mockResolvedValueOnce(undefined)
+    // @ts-ignore - replace cache
+    stores.cache = {
+      ...originalCache,
+      setItem: setItemMock,
+      clear: clearSpy,
+      keys: vi.fn().mockResolvedValue(['k1']),
+    }
+
     const state: ProjectState = {
       projectCode: 'core-retry',
       stores,
@@ -213,29 +228,61 @@ describe('adapter 核心流程', () => {
     }
     registerState(state)
 
-    // spy on setItem to fail once
-    const originalSetItem = stores.cache.setItem
-    stores.cache.setItem = vi.fn()
-      .mockRejectedValueOnce(new Error('Quota exceeded'))
-      .mockImplementation(originalSetItem)
-
     const adapter = createAdapter(network, state)
     await adapter(cfg({ cache: true, params: { a: 1 } }))
 
-    // verify network was called once, and cache eventually has the key
+    // network 一次；配额错误触发 clear 并重试（setItem 2 次）
     expect(networkMock).toHaveBeenCalledOnce()
-    const keys = await stores.cache.keys()
-    expect(keys.length).toBe(1)
+    expect(clearSpy).toHaveBeenCalledOnce()
+    expect(setItemMock).toHaveBeenCalledTimes(2)
 
-    // restore original
-    stores.cache.setItem = originalSetItem
+    stores.cache = originalCache
   })
 
-  it('写缓存持续失败：放弃写入但请求正常返回', async () => {
+  it('DataCloneError 写入失败：直接放弃，不清库不重试', async () => {
+    const stores = createStores('core-dataclone')
+    const { adapter: network, mock: networkMock } = makeNetwork()
+
+    const originalCache = stores.cache
+    const mockCache = {
+      ...originalCache,
+      setItem: vi.fn().mockRejectedValue(new DOMException('clone fail', 'DataCloneError')),
+      clear: vi.fn().mockResolvedValue(undefined),
+      keys: vi.fn().mockResolvedValue([]),
+    }
+    // @ts-ignore - replace cache
+    stores.cache = mockCache
+
+    const state: ProjectState = {
+      projectCode: 'core-dataclone',
+      stores,
+      userId: null,
+      enabled: true,
+      ttl: TTL,
+      ignoreParams: [],
+      ready: Promise.resolve(),
+      userOp: null,
+    }
+    registerState(state)
+    const adapter = createAdapter(network, state)
+
+    const res = await adapter(cfg({ cache: true, params: { a: 1 } }))
+
+    // 请求正常返回
+    expect(networkMock).toHaveBeenCalledOnce()
+    expect(res.status).toBe(200)
+    // 只尝试一次写入，未 clear、未重试
+    expect(mockCache.setItem).toHaveBeenCalledOnce()
+    expect(mockCache.clear).not.toHaveBeenCalled()
+
+    stores.cache = originalCache
+  })
+
+  it('写缓存遇非配额错误：放弃写入但请求正常返回', async () => {
     const stores = createStores('core-fail')
     const { adapter: network, mock: networkMock } = makeNetwork()
 
-    // 替换 cache 的 setItem 为永远失败的函数
+    // 替换 cache 的 setItem 为永远失败的函数（非配额错误）
     const originalCache = stores.cache
     const mockCache = {
       ...originalCache,
@@ -265,10 +312,10 @@ describe('adapter 核心流程', () => {
     expect(networkMock).toHaveBeenCalledOnce()
     expect(res.status).toBe(200)
 
-    // 检查 setItem 被尝试了多次
-    expect(mockCache.setItem).toHaveBeenCalledTimes(2) // initial + retry
-    // 检查没有写入缓存
-    const keys = await stores.cache.keys() // 可能返回空，因为 mock 没有实际存储
+    // 非配额错误：只尝试一次，不 clear、不重试
+    expect(mockCache.setItem).toHaveBeenCalledOnce()
+    expect(mockCache.clear).not.toHaveBeenCalled()
+    const keys = await stores.cache.keys() // mock 无实际存储，返回空
     expect(keys.length).toBe(0)
 
     // restore original
@@ -308,5 +355,58 @@ describe('adapter 核心流程', () => {
 
     // network 应该被调用
     expect(networkMock).toHaveBeenCalledOnce()
+  })
+})
+
+describe('损坏条目视为未命中（不抛 TypeError，回源修复）', () => {
+  // 先发一次正常请求建立 key，再用残缺记录覆盖同 key
+  async function seedCorrupt(projectCode: string, corruptEntry: unknown) {
+    const { stores, networkMock, adapter } = setup(projectCode)
+    const config = cfg({ cache: true, params: { a: 1 } })
+    await adapter(config)
+    expect(networkMock).toHaveBeenCalledOnce()
+    const key = (await stores.cache.keys())[0] as string
+    await stores.cache.setItem(key, corruptEntry as never)
+    return { stores, networkMock, adapter, config }
+  }
+
+  it('a. { response: null } 残缺记录：回源正常返回，不抛错', async () => {
+    const { networkMock, adapter, config } = await seedCorrupt('corrupt-null', {
+      response: null,
+      expireAt: Infinity,
+      createdAt: 0,
+    })
+    const res = await adapter(config)
+    expect(networkMock).toHaveBeenCalledTimes(2)
+    expect(res.status).toBe(200)
+    expect((res as AxiosResponse & { fromCache?: boolean }).fromCache).toBeUndefined()
+  })
+
+  it('b. response 缺 status：回源正常返回，不抛错', async () => {
+    const { networkMock, adapter, config } = await seedCorrupt('corrupt-no-status', {
+      response: { data: 1 },
+      expireAt: Infinity,
+      createdAt: 0,
+    })
+    const res = await adapter(config)
+    expect(networkMock).toHaveBeenCalledTimes(2)
+    expect(res.status).toBe(200)
+  })
+
+  it('c. 正常条目仍命中缓存', async () => {
+    const { networkMock, adapter, config } = await seedCorrupt('corrupt-ok', {
+      response: {
+        data: { url: '/x', params: { a: 1 }, body: undefined },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+      },
+      expireAt: Infinity,
+      createdAt: 0,
+    })
+    const res = await adapter(config)
+    expect(networkMock).toHaveBeenCalledOnce()
+    expect((res as AxiosResponse & { fromCache?: boolean }).fromCache).toBe(true)
+    expect(res.data).toEqual({ url: '/x', params: { a: 1 }, body: undefined })
   })
 })

@@ -163,6 +163,13 @@ async function revalidateInBackground(
   }
 }
 
+// 判断是否为配额超限错误：DOMException 规范名或 W3C 旧版 code 22
+function isQuotaError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const e = err as { name?: unknown; code?: unknown }
+  return e.name === 'QuotaExceededError' || e.code === 22
+}
+
 async function writeEntry(
   state: ProjectState,
   key: string,
@@ -176,8 +183,10 @@ async function writeEntry(
   }
   try {
     await state.stores.cache.setItem(key, entry)
-  } catch {
-    // 配额超限等：清库后重试一次
+  } catch (err) {
+    // 仅配额超限才清库重试；DataCloneError 等其它写入错误直接放弃，
+    // 避免反复清空全部正常缓存。
+    if (!isQuotaError(err)) return
     try {
       await state.stores.cache.clear()
       await state.stores.cache.setItem(key, entry)
@@ -185,6 +194,21 @@ async function writeEntry(
       /* 放弃写入 */
     }
   }
+}
+
+// 条目结构校验：非对象、response 缺失/为 null、response 缺 data/status、
+// expireAt 非数字均视为损坏（旧版本半成品写入、回写中断、结构升级等），
+// 按 spec 第 6 节"读缓存失败/记录损坏视为未命中"处理。
+function isUsableEntry(hit: unknown): hit is CacheEntry {
+  if (typeof hit !== 'object' || hit === null) return false
+  const e = hit as Partial<CacheEntry>
+  const r = e.response as { data?: unknown; status?: unknown } | undefined
+  return (
+    typeof e.expireAt === 'number' &&
+    !!r &&
+    'data' in r &&
+    typeof r.status === 'number'
+  )
 }
 
 export function createAdapter(
@@ -229,8 +253,8 @@ export function createAdapter(
       hit = null
     }
 
-    // 结构校验：旧版本（整响应缓存）或损坏条目回源
-    if (!hit || typeof hit !== 'object' || !('response' in hit)) {
+    // 结构校验：旧版本（整响应缓存）或损坏/残缺条目一律回源，不抛错
+    if (!isUsableEntry(hit)) {
       return requestNetwork()
     }
 
@@ -254,7 +278,7 @@ export function createAdapter(
           bgConfig as InternalAxiosRequestConfig,
           originalAdapter,
           key,
-          hit as CacheEntry,
+          hit,
         )
       }, 0)
     }

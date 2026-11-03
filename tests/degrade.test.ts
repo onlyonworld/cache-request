@@ -19,7 +19,7 @@ vi.mock('localforage', () => {
   }
 })
 
-import { cacheRequest } from '../src/index'
+import { cacheRequest, setUserId } from '../src/index'
 
 function makeAxios() {
   const instance = axios.create()
@@ -51,5 +51,11 @@ describe('降级与幂等', () => {
 
     await instance.get('/a', { cache: true })
     expect(network).toHaveBeenCalledOnce()
+  })
+
+  it('IDB 降级时 setUserId 不 reject，仅内存生效', async () => {
+    const { instance } = makeAxios()
+    cacheRequest(instance, 'deg-setuser', 'v1')
+    await expect(setUserId('u1')).resolves.toBeUndefined()
   })
 })

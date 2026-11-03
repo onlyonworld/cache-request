@@ -93,6 +93,12 @@ function requireCurrentState(): ProjectState {
 
 async function doSetUserId(state: ProjectState, id: string | number | null): Promise<void> {
   await state.ready
+  // IDB 降级时不触碰存储（必然抛错），userId 仅内存生效——本就无缓存可读。
+  // 保证"包永不抛出影响业务"。
+  if (!state.enabled) {
+    state.userId = id
+    return
+  }
   const record = await state.stores.meta.getItem<MetaRecord>('meta')
   if (!record || record.userId !== id) {
     await state.stores.cache.clear()
