@@ -61,15 +61,8 @@
     .log-diff { color: #ff7b72; }
     .log-err { color: #ff9e9e; }
   </style>
-  <!-- importmap：让构建产物中的裸模块名解析到可用的 ESM 地址 -->
-  <script type="importmap">
-    {
-      "imports": {
-        "axios": "https://esm.sh/axios@1.7.9",
-        "localforage": "/localforage.js"
-      }
-    }
-  </script>
+  <!-- demo 逻辑已把 axios/localforage/本包打包进 app.bundle.js，无需任何 CDN。
+       必须通过 node demo/server.js 访问本页，直接用 Live Server 打开会缺少接口与打包产物。 -->
 </head>
 <body>
   <h1>cache-request 体验 Demo</h1>
@@ -117,69 +110,6 @@
     </div>
   </div>
 
-  <script type="module">
-    import axios from 'axios'
-    import { cacheRequest, setUserId, clearCache, onDiff } from '/cache-request.js'
-
-    const logEl = document.getElementById('log')
-
-    function log(type, message, payload) {
-      const time = new Date().toLocaleTimeString()
-      const line = `[${time}] ${message}`
-      const div = document.createElement('div')
-      div.className = `log-${type}`
-      div.textContent = payload
-        ? `${line}\n${typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)}`
-        : line
-      logEl.appendChild(div)
-      logEl.scrollTop = logEl.scrollHeight
-    }
-
-    // 初始化：cacheKey 用固定串 demo-v1。实际项目中由构建工具替换为每次发版的随机串。
-    cacheRequest(axios, 'demo-project', 'demo-v1', {
-      ttl: 60 * 1000, // demo 中设为 60 秒，便于观察过期
-      ignoreParams: ['t'],
-    })
-
-    await setUserId('user-1')
-    log('info', '初始化完成：cacheRequest + setUserId(user-1)')
-
-    // 订阅静默刷新发现的数据差异
-    onDiff((event) => {
-      log(
-        'diff',
-        `onDiff 收到数据变化 ${event.method.toUpperCase()} ${event.url}`,
-        { oldData: event.oldData, newData: event.newData },
-      )
-    })
-
-    async function call(config) {
-      const res = await axios.get('/api/user', config)
-      const fromCache = res.fromCache === true
-      log(fromCache ? 'hit' : 'net', fromCache ? '命中缓存，立即返回' : '走网络请求返回', res.data)
-    }
-
-    window.plainRequest = () => call({})
-    window.cachedRequest = () => call({ cache: true, params: { t: Date.now() } }) // t 被 ignoreParams 忽略
-    window.forceRequest = () => call({ cache: { force: true } })
-    window.revalidateRequest = () => call({ cache: true, revalidate: true })
-
-    window.mutateServer = async () => {
-      const res = await axios.post('/api/mutate')
-      log('info', '服务器数据已修改', res.data.user)
-    }
-
-    window.changeUser = async () => {
-      const id = document.getElementById('userId').value.trim()
-      if (!id) return log('err', 'userId 不能为空')
-      await setUserId(id)
-      log('info', `setUserId("${id}") 完成，缓存已按规则处理`)
-    }
-
-    window.clearAll = async () => {
-      await clearCache()
-      log('info', 'clearCache() 完成，当前项目缓存已清空')
-    }
-  </script>
+  <script src="/app.bundle.global.js"></script>
 </body>
 </html>

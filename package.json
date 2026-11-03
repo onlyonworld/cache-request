@@ -1,5 +1,5 @@
 {
-  "name": "@onlyonworld/axios-cache",
+  "name": "@only_on_world/axios-cache",
   "version": "0.1.0",
   "description": "劫持 axios 请求，将响应缓存于 IndexedDB，支持 TTL、发版清缓存、多账号隔离与静默刷新",
   "type": "module",
@@ -42,6 +42,8 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:demo": "tsup --config tsup.demo.config.ts",
+    "demo": "npm run build:demo && node demo/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run test && npm run build"

@@ -88,17 +88,11 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    // 本包的构建产物（ESM）
-    if (req.method === 'GET' && pathname === '/cache-request.js') {
-      await serveStatic(res, path.join(root, 'dist/index.js'), 'application/javascript')
-      return
-    }
-
-    // localforage 的 UMD 浏览器产物
-    if (req.method === 'GET' && pathname === '/localforage.js') {
+    // demo 打包产物（IIFE，内含 axios/localforage/本包）
+    if (req.method === 'GET' && pathname === '/app.bundle.global.js') {
       await serveStatic(
         res,
-        path.join(root, 'node_modules/localforage/dist/localforage.js'),
+        path.join(root, 'demo/app.bundle.global.js'),
         'application/javascript',
       )
       return

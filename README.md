@@ -40,15 +40,16 @@ setUserId('user-123')
 
 ## 本地 Demo 快速体验
 
-仓库内置一个可交互的 demo，包含一个**纯 Node.js 内置模块实现的接口服务器**（无 express/koa）：
+仓库内置一个可交互的 demo，包含一个**纯 Node.js 内置模块实现的接口服务器**（无 express/koa）。demo 逻辑经 tsup 打包为一个 IIFE（内含 axios、localforage、本包），页面无需任何 CDN：
 
 ```bash
-npm install        # 安装依赖（仅首次）
-npm run build      # 构建本包，供页面引入
-node demo/server.js
+npm install      # 仅首次
+npm run demo     # 打包 demo 并启动服务器
 ```
 
 浏览器打开 http://127.0.0.1:5174 ，可体验：缓存命中（秒回）/ 强制刷新 / 静默刷新与 onDiff 差异事件 / setUserId 切换清缓存 / clearCache。
+
+> 注意：不要用 Live Server 直接打开 `demo/index.html`——接口与打包产物都由 demo 服务器提供。
 
 ## 请求级配置
 
