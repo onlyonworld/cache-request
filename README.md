@@ -5,8 +5,10 @@
 ## 安装
 
 ```bash
-npm install cache-request localforage axios
+npm install
 ```
+
+> 注意：该项目要求宿主项目安装axios，否则无法正常使用。
 
 ## 快速开始
 
@@ -16,11 +18,12 @@ import { cacheRequest, setUserId, onDiff } from 'cache-request'
 
 // projectCode 必填：不同项目使用独立的 IndexedDB
 // cacheKey：发版版本号，变化时自动清空该项目全部缓存
-cacheRequest(axios, 'your-project-code', '{{{cacheKey}}}', {
+cacheRequest(axios, 'your-project-code', __AXIOS_CACHE_KEY__, {
   ttl: 24 * 60 * 60 * 1000, // 默认 1 天；0 表示永久
+  ignoreParams: ['t'] ,
 })
 
-// 登录后设置 userId；切换账号时自动清空缓存
+// 登录后设置 userId；切换账号时自动清空缓存，强烈建议设置
 setUserId('user-123')
 ```
 
@@ -36,7 +39,7 @@ http.post('/order', payload, { cache: true })
 // 强制走网络，结果覆盖缓存
 http.get('/user/1', { cache: { force: true } })
 
-// 命中缓存后静默刷新；新旧数据不一致时通知订阅者
+// 命中缓存后静默刷新（即命中缓存后返回缓存内容，同时在后台另外发起请求，拿到请求回来的数据后与旧数据做对比，一致则覆盖数据缓存过期时间，不一致则通知订阅者，并覆盖indexedDB中的旧数据）
 http.get('/feed', { cache: true, revalidate: true })
 
 // 单请求忽略随机参数（与全局 ignoreParams 取并集）
@@ -49,7 +52,7 @@ http.get('/api', { cache: true, ignoreParams: ['v'] })
 
 ```ts
 // 全局
-cacheRequest(axios, 'project', '{{{cacheKey}}}', { ignoreParams: ['v', 't'] })
+cacheRequest(axios, 'project', __AXIOS_CACHE_KEY__, { ignoreParams: ['v', 't'] })
 
 // 单请求
 http.get('/api', { cache: true, ignoreParams: ['v'] })
@@ -76,20 +79,54 @@ onDiff(({ method, url, params, data, oldData, newData }) => {
 
 ## 发版时自动清缓存（推荐做法）
 
-本包不提供构建插件。建议在构建配置中把源码里的 `{{{cacheKey}}}` 替换为每次构建生成的随机串：
+本包不提供构建插件。建议在构建配置中把源码里的 `__AXIOS_CACHE_KEY__` 替换为每次构建生成的随机串：
 
 - Vite：使用 `define`
   ```ts
   // vite.config.ts
-  export default {
-    define: {
-      '{{{cacheKey}}}': JSON.stringify(process.env.CACHE_KEY || Date.now().toString()),
-    },
+  import { defineConfig } from 'vite'
+
+  function randomKey(len = 12) {
+    let out = ''
+    while (out.length < len) out += Math.random().toString(36).slice(2)
+    return out.slice(0, len)
   }
+
+  export default defineConfig(({ command }) => {
+    const cacheKey = command === 'build' ? randomKey(12) : 'dev-cache-key'
+
+    return {
+      define: {
+        __AXIOS_CACHE_KEY__: JSON.stringify(cacheKey),
+      },
+    }
+  })
   ```
 - Webpack：使用 `DefinePlugin`
   ```js
-  new webpack.DefinePlugin({ '{{{cacheKey}}}': JSON.stringify(cacheKey) })
+  // webpack.config.js
+  const webpack = require('webpack')
+
+  function randomKey(len = 12) {
+    let out = ''
+    while (out.length < len) out += Math.random().toString(36).slice(2)
+    return out.slice(0, len)
+  }
+
+  module.exports = (env, argv) => {
+    const isDev = argv.mode !== 'production'
+    const cacheKey = isDev ? 'dev-cache-key' : randomKey(12)
+
+    return {
+      // ...其他配置
+      plugins: [
+        new webpack.DefinePlugin({
+          __AXIOS_CACHE_KEY__: JSON.stringify(cacheKey),
+        }),
+      ],
+    }
+  }
+
   ```
 
 运行时检测到 cacheKey 与 IndexedDB 中记录不一致，即判定发版，清空该项目全部接口缓存，避免新旧数据结构不一致导致渲染报错白屏。

@@ -5,8 +5,7 @@
  * 2. 未命中或 TTL 过期：回源一次，2xx 响应写入缓存
  * 3. force：强制回源，结果覆盖缓存
  * 4. 命中：立即用缓存重建 AxiosResponse（config 取运行时 config）
- * 5. 命中且 revalidate：返回缓存的同时后台静默刷新，数据不一致则覆盖缓存
- *    并发出 diff 事件
+ * 5. 命中且 revalidate：返回缓存的同时后台静默刷新，数据不一致则覆盖缓存，并发出 diff 事件
  */
 import { AxiosHeaders } from 'axios'
 import type {
