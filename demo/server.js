@@ -58,6 +58,13 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = url
 
   try {
+    // favicon 无需提供，直接 204，避免浏览器默认请求产生 404 噪音
+    if (pathname === '/favicon.ico') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
     // ---------- 接口 ----------
     if (req.method === 'GET' && pathname === '/api/user') {
       // 延迟 800ms，放大“走网络”与“命中缓存（毫秒级）”的速度差异
